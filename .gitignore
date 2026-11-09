@@ -1,0 +1,22 @@
+# Private, user-provided bank training materials. Do not publish or commit.
+/sources/private/
+.env
+.env.*
+__pycache__/
+.venv/
+node_modules/
+.next/
+dist/
+build/
+*.db
+*.sqlite3
+*.db-*
+*.sqlite3-*
+/.local/
+/data/
+/.pytest_cache/
+**/.pytest_cache/
+**/test-results/
+**/playwright-report/
+*.tsbuildinfo
+!.env.example

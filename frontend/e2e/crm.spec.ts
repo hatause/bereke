@@ -1,0 +1,60 @@
+import { expect, test } from '@playwright/test'
+
+test('searches a client, opens products and handles a ticket through the queue', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('link', { name: 'CRM Simulator' }).click()
+  const search = page.getByRole('textbox', { name: 'Поиск по имени или учебному ID' })
+  await search.fill('unknown')
+  await expect(page.getByText(/Клиенты не найдены/)).toBeVisible()
+  await search.fill('demo-customer-002')
+  await expect(page.getByRole('table').getByRole('row')).toHaveCount(2)
+  await page.getByRole('link', { name: 'Вымышленный клиент 002' }).click()
+  await expect(page.getByRole('heading', { name: 'Вымышленный клиент 002' })).toBeVisible()
+  await expect(page.getByText('DEMO-CARD-002', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Учебный депозит, условия вымышлены/)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Движения по счёту' })).toBeVisible()
+
+  await page.getByLabel('Тема обращения').selectOption('deposit')
+  await page.getByRole('button', { name: 'Создать тикет' }).click()
+  await expect(page.getByRole('status')).toHaveText(/Тикет #\d+ создан/)
+  const ticket = page.getByRole('article').filter({ has: page.getByRole('heading', { name: /^#\d+ · Депозит$/ }) })
+  await ticket.getByRole('button', { name: 'Взять в работу' }).click()
+  await expect(ticket.getByRole('button', { name: 'Отметить решённым' })).toBeVisible()
+  await page.reload()
+  await ticket.getByRole('button', { name: 'Отметить решённым' }).click()
+  await expect(ticket.getByRole('button', { name: 'Открыть повторно' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Очередь тикетов' }).click()
+  await page.getByLabel('Статус тикета').selectOption('resolved')
+  await page.getByRole('link', { name: /^#\d+ · Депозит$/ }).click()
+  await expect(ticket.getByText('Открыт → В работе')).toBeVisible()
+  await expect(ticket.getByText('В работе → Решён')).toBeVisible()
+  await ticket.getByRole('button', { name: 'Открыть повторно' }).click()
+  await expect(ticket.getByText('Решён → Открыт')).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.screenshot({ path: 'test-results/crm-mobile.png' })
+})
+
+test('recovers a ticket whose creation response was lost before reload', async ({ page, request }) => {
+  const path = '/api/crm/customers/5'
+  const endpoint = '**/api/crm/customers/5/tickets'
+  const before = await (await request.get(path)).json()
+  await page.route(endpoint, async route => {
+    const committed = await route.fetch()
+    expect(committed.ok()).toBeTruthy()
+    await route.abort()
+  })
+  await page.goto('/crm/customers/5')
+  await page.getByLabel('Тема обращения').selectOption('loyalty')
+  await page.getByRole('button', { name: 'Создать тикет' }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await page.unroute(endpoint)
+  await page.reload()
+  await expect(page.getByLabel('Тема обращения')).toHaveValue('loyalty')
+  await page.getByRole('button', { name: 'Повторить создание' }).click()
+  await expect(page.getByRole('status')).toHaveText(/Тикет #\d+ создан/)
+  const after = await (await request.get(path)).json()
+  expect(after.tickets).toHaveLength(before.tickets.length + 1)
+})
